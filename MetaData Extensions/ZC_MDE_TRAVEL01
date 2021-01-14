@@ -1,0 +1,122 @@
+//  A CDS entity can be enriched using multiple MDEs
+//+ if that is the case, the @metadata.layer will set
+//+ the priority of which Metadata Extension ( aka MDE ) will be called first.
+//  CORE = Lowest priority and CUSTOMER = highest priority
+@Metadata.layer: #CORE
+
+//header information
+@UI: {
+    headerInfo: {
+        typeName: 'Travel',
+        typeNamePlural: 'Travels',
+        title: {
+            type: #STANDARD,
+            label: 'TravelX',
+            value: 'TravelId'
+        }
+    },
+    presentationVariant: [{
+        sortOrder: [{
+            by: 'TravelId',
+            direction: #DESC
+        }] }]
+}
+
+annotate view ZC_TRAVEL01 with
+{
+
+  //  using the @ui.facet annotation to define the "navigation" to the object page and its layout
+  //+ the Travel Object Page has 2 facets
+  //+ ( 1 ) travel entity with type = #IDENTIFICATION_REFERENCE
+  //+ ( 2 ) booking entity with type = #LINEITEM_REFERENCE
+  //+ with Booking Composition specified as the "Target Element"
+
+  @UI.facet: [{
+      id: 'travel',
+      purpose: #STANDARD,
+      type: #IDENTIFICATION_REFERENCE,
+      position: 10,
+      label: 'Travel' },
+     {
+      id: 'booking',
+      purpose: #STANDARD,
+      position: 20,
+      label: 'Booking',
+      type: #LINEITEM_REFERENCE,
+      targetElement: '_booking'
+      }]
+
+  // defining the position and label for each field
+  @UI:{ identification: [{
+      position: 1,
+      label: 'Travel UUID'
+  }] }
+
+  Traveluuid;
+
+  @UI:{ lineItem: [{ position: 10 }],         //@ui.lineItem: [{ }] annotation is used to specify the layout information of the columns
+                                              //shown in the list
+        identification: [{ position: 10 }],   //@ui.identification: [{ }] annotation is used to specify the layout information
+                                              //of the colums shown in the identification section of the Object Page
+        selectionField: [{ position: 10 }]    //@ui.selectionField: [{ }] annotation is used to enable a field
+                                              //for selection in the filter bar. if a value-help is defined for the element
+                                              //then it is automatically enabled
+   }
+  TravelId;
+  @UI:{ lineItem: [{ position: 20 }],
+        identification: [{ position: 20 }],
+        selectionField: [{ position: 20 }]
+   }
+  AgencyId;
+  @UI:{ lineItem: [{ position: 30 }],
+        identification: [{ position: 30 }],
+        selectionField: [{ position: 30 }]
+   }
+  CustomerId;
+  @UI:{ lineItem: [{ position: 40 }],
+        identification: [{ position: 40 }]
+   }
+  BeginDate;
+  @UI:{ lineItem: [{ position: 50 }],
+        identification: [{ position: 50 }]
+   }
+  EndDate;
+  @UI:{ lineItem: [{ position: 60 }],
+        identification: [{ position: 60 }]
+   }
+  BookingFee;
+  @UI:{ lineItem: [{ position: 70 }],
+        identification: [{ position: 70 }]
+   }
+  TotalPrice;
+  @UI:{ lineItem: [{ position: 80 }],
+        identification: [{ position: 80 }]
+   }
+  Description;
+
+  // Extending the Actions to the UI in the Metadata Extensions file
+  @UI: {
+      lineItem: [{ position: 90, type: #FOR_ACTION, label: 'Accept Travel', dataAction: 'acceptTravel'},
+                 { position: 90, type: #FOR_ACTION, label: 'Reject Travel', dataAction: 'rejectTravel'}],
+      identification:
+                [{ position: 90, type: #FOR_ACTION, label: 'Accept Travel', dataAction: 'acceptTravel'},
+                 { position: 90, type: #FOR_ACTION, label: 'Reject Travel', dataAction: 'rejectTravel'}]
+         }
+
+  OverallStatus;
+
+  @UI.hidden:true
+  CreatedBy;
+
+  @UI.hidden:true
+  CreatedAt;
+
+  @UI.hidden:true
+  LastChangedBy;
+
+  @UI.hidden:true
+  LastChangedAt;
+
+  @UI.hidden:true
+  LocalLastChangedAt;
+}
