@@ -1,0 +1,96 @@
+@EndUserText.label: 'Booking BO Projection View'
+@AccessControl.authorizationCheck: #CHECK
+@Search.searchable: true
+@Metadata.allowExtensions: true
+
+define view entity ZC_BOOK01
+  as projection on zi_book01 as booking
+{
+  key BookingUuid,
+      TravelUuid,
+
+      //BookingId enabled for free-style search
+      @Search: {
+          defaultSearchElement: true
+          }
+      BookingId,
+      BookingDate,
+
+      //CustomerID enabled for free-style search
+      @Search.defaultSearchElement: true
+      // the new added element customerName provides textual description for customerID
+      // and this done using the @objectmodel annotation
+      @ObjectModel: {
+          text: {
+              element: ['CustomerName']
+                }
+      }
+      // value-help
+      @Consumption.valueHelpDefinition: [{
+          entity: {
+              name: '/DMO/I_Customer',
+              element: 'CustomerID'
+          }
+       }]
+      CustomerId,
+      // view list enhanced with a new field Last Name from the association _customer
+      _customer.LastName as CustomerName,
+      // the new added element CarrierName provides textual decription for the CarrierID
+      // this is done using the @objectmodel text element annotation
+      @ObjectModel.text.element: ['CarrierName']
+      // value-help
+      @Consumption.valueHelpDefinition: [{
+          entity: {
+              name: '/DMO/I_Carrier',
+              element: 'AirlineID'
+          }
+       }]
+      CarrierId,
+      // view list enhanced with a new field Carrier Name from the association _carrier
+      _carrier.Name      as CarrierName,
+
+      //value-help for ConnectionID, this has an additional binding condition for
+      //+ returning values from the selected value-help record and supplying it to
+      //+ local view elements CarrierId, FlightDate, FlightPrice and CurrencyCode.
+      //  also note that usage: #RESULT is not mentioned for CarrierId since it
+      //+ already has a valueHelpDefinition defined.
+
+
+      @Consumption.valueHelpDefinition: [{
+          entity: {
+              name: '/DMO/I_Flight',
+              element: 'ConnectionID'
+          },
+          additionalBinding: [{ localElement: 'CarrierId',    element:   'AirlineID' },
+                              { localElement: 'FlightDate',   element:   'FlightDate',   usage:#RESULT },
+                              { localElement: 'FlightPrice',  element:   'Price',        usage:#RESULT},
+                              { localElement: 'CurrencyCode', element:   'CurrencyCode', usage: #RESULT}
+          ]
+       }]
+
+      ConnectionId,
+      FlightDate,
+      //specifing the CurrencyCode for the amount field FlightPrice
+      @Semantics.amount.currencyCode: 'CurrencyCode'
+      FlightPrice,
+      //value-help
+      @Consumption.valueHelpDefinition: [{
+          entity: {
+              name: 'I_Currency',
+              element: 'Currency'
+          }
+       }]
+      CurrencyCode,
+      CreatedBy,
+      LastChangedBy,
+      LocalLastChangedAt,
+
+      /* Associations */
+      _carrier,
+      _connection,
+      _currency,
+      _customer,
+      _flight,
+      //BO association is redirected to the parent BO projection view
+      _travel : redirected to parent ZC_TRAVEL01
+}
