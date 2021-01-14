@@ -1,0 +1,47 @@
+@AbapCatalog.viewEnhancementCategory: [#NONE]
+@AccessControl.authorizationCheck: #CHECK
+@EndUserText.label: 'Booking View'
+@Metadata.ignorePropagatedAnnotations: true
+@ObjectModel.usageType:{
+    serviceQuality: #X,
+    sizeCategory: #S,
+    dataClass: #MIXED
+}
+define view entity zi_book01
+  as select from zdemo_abook_01 as _booking
+
+  association to parent zi_travel01       as _travel     on  $projection.TravelUuid = _travel.Traveluuid
+  association [1..1] to /DMO/I_Customer   as _customer   on  $projection.CustomerId = _customer.CustomerID
+  association [1..1] to /DMO/I_Carrier    as _carrier    on  $projection.CarrierId = _carrier.AirlineID
+  association [1..1] to /DMO/I_Connection as _connection on  $projection.CarrierId    = _connection.AirlineID
+                                                         and $projection.ConnectionId = _connection.ConnectionID
+  association [1..1] to /DMO/I_Flight     as _flight     on  $projection.CarrierId    = _flight.AirlineID
+                                                         and $projection.ConnectionId = _flight.ConnectionID
+                                                         and $projection.FlightDate   = _flight.FlightDate
+  association [1..1] to I_Currency        as _currency   on  $projection.CurrencyCode = _currency.Currency
+{
+  key booking_uuid          as BookingUuid,
+      travel_uuid           as TravelUuid,
+      booking_id            as BookingId,
+      booking_date          as BookingDate,
+      customer_id           as CustomerId,
+      carrier_id            as CarrierId,
+      connection_id         as ConnectionId,
+      flight_date           as FlightDate,
+      @Semantics.amount: {
+          currencyCode: 'CurrencyCode'
+      }
+      flight_price          as FlightPrice,
+      currency_code         as CurrencyCode,
+      created_by            as CreatedBy,
+      last_changed_by       as LastChangedBy,
+      local_last_changed_at as LocalLastChangedAt,
+
+      /* associations */
+      _travel,
+      _customer,
+      _carrier,
+      _connection,
+      _flight,
+      _currency
+}
