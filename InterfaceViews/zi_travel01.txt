@@ -1,0 +1,68 @@
+@AbapCatalog.viewEnhancementCategory: [#NONE]
+@AccessControl.authorizationCheck: #CHECK
+@EndUserText.label: 'Travel View'
+@Metadata.ignorePropagatedAnnotations: true
+@ObjectModel.usageType:{
+    serviceQuality: #X,
+    sizeCategory: #S,
+    dataClass: #MIXED
+}
+
+/*defining the structure of the Business Object. This can be done by using the root keyword to define the root node.
+here the travel entity is defined as the root node of the Business Object Composition Tree.
+booking entity is defined as a child of the travel entity and this is done using the special association called "Composition" .
+Also we need define this relationship into the booking entity using "association to parent".
+*/
+
+define root view entity zi_travel01
+  as select from zdemo_atrav_01 as travel
+
+
+  composition [0..*] of zi_book01       as _booking
+    
+  association [0..1] to /DMO/I_Agency   as _agency   on $projection.AgencyId = _agency.AgencyID
+  association [0..1] to /DMO/I_Customer as _customer on $projection.CustomerId = _customer.CustomerID
+  association [0..1] to I_Currency      as _currency on $projection.CurrencyCode = _currency.Currency
+{
+  key traveluuid            as Traveluuid,
+      travel_id             as TravelId,
+      agency_id             as AgencyId,
+      customer_id           as CustomerId,
+      begin_date            as BeginDate,
+      end_date              as EndDate,
+
+      // JSON style of writing an annotation for booking_fee
+      @Semantics.amount: {
+          currencyCode: 'CurrencyCode'
+      }
+      booking_fee           as BookingFee,
+
+      // Object style of writing an annotation for total_price
+      @Semantics.amount.currencyCode: 'CurrencyCode'
+      total_price           as TotalPrice,
+
+      currency_code         as CurrencyCode,
+      description           as Description,
+      overall_status        as OverallStatus,
+
+      @Semantics.user.createdBy: true
+      created_by            as CreatedBy,
+
+      @Semantics.systemDateTime: {
+          createdAt: true,
+          lastChangedAt: true,
+          localInstanceLastChangedAt: true
+      }
+      created_at            as CreatedAt,
+
+      @Semantics.user.lastChangedBy: true
+      last_changed_by       as LastChangedBy,
+      last_changed_at       as LastChangedAt,
+      local_last_changed_at as LocalLastChangedAt,
+
+      /* associations */
+      _booking,
+      _agency,
+      _customer,
+      _currency
+}
