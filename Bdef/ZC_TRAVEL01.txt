@@ -1,0 +1,27 @@
+projection;
+
+define behavior for ZC_TRAVEL01 alias travel
+// enable ETag handling for travel entity to achieve optimistic locking
+use etag
+{
+  use create;
+  use update;
+  use delete;
+
+  use association _booking { create; }
+
+  // projecting the 2 new actions using the "use" stmt
+  use action acceptTravel;
+  use action rejectTravel;
+
+}
+
+define behavior for ZC_BOOK01 alias booking
+// enable the Etag handling for booking entity to achieve optimistic locking
+use etag
+{
+  use update;
+  use delete;
+
+  use association _travel;
+}
