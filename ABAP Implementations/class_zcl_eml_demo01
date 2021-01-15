@@ -1,0 +1,133 @@
+CLASS zcl_eml_demo01 DEFINITION
+  PUBLIC
+  FINAL
+  CREATE PUBLIC .
+
+  PUBLIC SECTION.
+
+    INTERFACES if_oo_adt_classrun.
+
+  PROTECTED SECTION.
+  PRIVATE SECTION.
+ENDCLASS.
+
+
+
+CLASS zcl_eml_demo01 IMPLEMENTATION.
+  METHOD if_oo_adt_classrun~main.
+
+*    " Step (1): READ Operation
+*    " Note: READ operations are mass-enabled by default.
+*    READ ENTITIES OF zi_travel01
+*     ENTITY travel
+*      FROM VALUE #( ( Traveluuid = '3F0C14A0A9F83D5C17000302C5A3724F' ) )
+*      RESULT DATA(travels). "in-line declaration of internal table
+*
+*   out->write(
+*     EXPORTING
+*       data   = travels
+*   ).
+
+    " step (2): READ with fields
+*    READ ENTITIES OF zi_travel01
+*     ENTITY travel
+*     FIELDS ( AgencyId CustomerId )
+*     WITH VALUE #( ( Traveluuid = '3F0C14A0A9F83D5C17000302C5A3724F' ) )
+*     RESULT DATA(travels).
+*
+*    out->write(
+*    EXPORTING
+*      data   = travels ).
+
+    " step(3) Read all the fields
+*    READ ENTITIES OF zi_travel01
+*    ENTITY travel
+*    ALL FIELDS WITH VALUE #( ( Traveluuid = '3F0C14A0A9F83D5C17000302C5A3724F' ) )
+*    RESULT DATA(travels).
+*
+
+
+    " step(4) READ by association defined in the Behavior DEfinition
+*    READ ENTITIES OF zi_travel01
+*     ENTITY travel BY \_booking
+*     ALL FIELDS WITH VALUE #( ( Traveluuid = '3F0C14A0A9F83D5C17000302C5A3724F' ) )
+*     RESULT DATA(travels).
+*
+*    out->write( EXPORTING data = travels ).
+
+    " step(5) Unsuccessful READ
+*    READ ENTITIES OF zi_travel01
+*        ENTITY travel BY \_booking
+*        ALL FIELDS WITH VALUE #( ( Traveluuid = '3F0C14A0A9F83D5C17000302C5FAILED' ) )
+*        RESULT DATA(travels)
+*        FAILED DATA(failed)         "Unsuccessful Operations
+*        REPORTED DATA(reported).    "T100 messages
+*
+*    out->write( EXPORTING data = travels ).
+*    out->write( EXPORTING data = failed ).
+*    out->write( EXPORTING data = reported ).
+
+    " step(6a) MODIFY update
+*    MODIFY ENTITIES OF zi_travel01
+*     ENTITY travel
+*      UPDATE "current MODIFY operations is UPDATE, it can also be CREATE, DELETE, EXECUTE
+*       SET FIELDS WITH VALUE
+*        #( ( Traveluuid = '3F0C14A0A9F83D5C17000302C5A3724F'
+*             Description = 'Tanmoy was here to update') )
+*
+*       FAILED DATA(failed)
+*       REPORTED DATA(reported).
+*
+*    out->write( 'Update done' ).
+*
+*    " Note all the changes are made to the transaction buffer.
+*    " Once we commit all the changes then it is persisted.
+*
+*    " step(6b) Commit Entities
+*    COMMIT ENTITIES
+*     RESPONSE OF zi_travel01
+*     FAILED DATA(failed_commit)
+*     REPORTED DATA(reported_commit).
+
+    " step(7a) - Add MODIFY create
+*    MODIFY ENTITIES OF zi_travel01
+*     ENTITY travel
+*      CREATE
+*        SET FIELDS WITH VALUE
+*         #( ( %cid          = 'Content_ID'
+*              AgencyId      = '070002'
+*              CustomerId    = '000314'
+*              BeginDate     = cl_abap_context_info=>get_system_date( )
+*              EndDate       = cl_abap_context_info=>get_system_date( )
+*              Description   = 'Tanmoy is here again -> Creating a New Instance' ) )
+*
+*          MAPPED    DATA(mapped)
+*          FAILED    DATA(failed)
+*          REPORTED  DATA(reported).
+*
+*    out->write( 'Create done' ).
+*
+**    " step(7b) Commit Entities
+*    COMMIT ENTITIES
+*     RESPONSE OF zi_travel01
+*     FAILED DATA(failed_commit)
+*     REPORTED DATA(reported_commit).
+
+    "Deleting an Instance
+* MODIFY ENTITIES OF zi_travel01
+*  ENTITY travel
+*   DELETE FROM
+*    VALUE #( ( Traveluuid = 'Enter the UUID' ) )
+*
+*    FAILED      DATA(failed)
+*    REPORTED    DATA(reported).
+*
+* COMMIT ENTITIES
+*  RESPONSE OF zi_travel01
+*  FAILED   DATA(failed_commit)
+*  REPORTED DATA(reported_commit).
+*
+**    out->write( 'Delete done' ).
+  ENDMETHOD.
+
+ENDCLASS.
