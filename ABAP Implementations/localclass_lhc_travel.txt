@@ -1,0 +1,477 @@
+* This is a local class is defined in the local Types tab & contains the implementation
+* Super Class is CL_ABAP_BEHAVIOR_HANDLER
+CLASS lhc_travel DEFINITION INHERITING FROM cl_abap_behavior_handler.
+  PRIVATE SECTION.
+
+    CONSTANTS:
+      BEGIN OF travel_status,
+        open     TYPE c LENGTH 1 VALUE 'O', "Open
+        accepted TYPE c LENGTH 1 VALUE 'A', "Accepted
+        canceled TYPE c LENGTH 1 VALUE 'X', "Cancelled
+      END OF travel_status.
+
+* What is this method? Answered in the method implementation
+    METHODS get_instance_features FOR INSTANCE FEATURES
+      IMPORTING keys REQUEST requested_features FOR travel RESULT result.
+
+    METHODS acceptTravel FOR MODIFY
+      IMPORTING keys FOR ACTION travel~acceptTravel RESULT result.
+
+    METHODS recalcTotalPrice FOR MODIFY
+      IMPORTING keys FOR ACTION travel~recalcTotalPrice.
+
+    METHODS rejectTravel FOR MODIFY
+      IMPORTING keys FOR ACTION travel~rejectTravel RESULT result.
+
+    METHODS calculateTotalPrice FOR DETERMINE ON MODIFY
+      IMPORTING keys FOR travel~calculateTotalPrice.
+
+    METHODS setInitialStatus FOR DETERMINE ON MODIFY
+      IMPORTING keys FOR travel~setInitialStatus.
+
+    METHODS calculateTravelId FOR DETERMINE ON SAVE
+      IMPORTING keys FOR travel~calculateTravelId.
+
+    METHODS validateAgency FOR VALIDATE ON SAVE
+      IMPORTING keys FOR travel~validateAgency.
+
+    METHODS validateCustomer FOR VALIDATE ON SAVE
+      IMPORTING keys FOR travel~validateCustomer.
+
+    METHODS validateDates FOR VALIDATE ON SAVE
+      IMPORTING keys FOR travel~validateDates.
+
+    METHODS get_instance_authorizations FOR INSTANCE AUTHORIZATION
+      IMPORTING keys REQUEST requested_authorizations FOR travel RESULT result.
+
+*-> Some Helper Methods
+    METHODS is_update_granted IMPORTING has_before_image      TYPE abap_bool
+                                        overall_status        TYPE /dmo/overall_status
+                              RETURNING VALUE(update_granted) TYPE abap_bool.
+
+    METHODS is_delete_granted IMPORTING has_before_image      TYPE abap_bool
+                                        overall_status        TYPE /dmo/overall_status
+                              RETURNING VALUE(delete_granted) TYPE abap_bool.
+
+    METHODS is_create_granted RETURNING VALUE(create_granted) TYPE abap_bool.
+
+ENDCLASS.
+
+CLASS lhc_travel IMPLEMENTATION.
+
+*-> get_instance_feature is used for instance-specific/key-specific feature control.
+*->  It returns a result table which has an entry for each requested key
+*->+ specifying if the related feature is enabled or disabled based on
+*->+ the state of the instance.
+  METHOD get_instance_features.
+**->  Enable/Disable the Accept Travel and Reject Travel actions based on the current status of the travel
+**-> +is a good practical example of feature control
+
+    READ ENTITIES OF zi_travel01 IN LOCAL MODE
+     ENTITY travel
+     FIELDS ( OverallStatus )
+     WITH CORRESPONDING #( keys )
+     RESULT DATA(travels).
+
+    result =
+     VALUE #(
+       FOR travel IN travels
+*-> is_accepted & is_rejected are complimentary to each other.
+*->  is_accepted & is_rejected are defined as auxiliary variables using the LET keyword
+*-> +and the used "IN" the assignment operation
+         LET is_accepted = COND #( WHEN travel-OverallStatus = travel_status-accepted
+                                   THEN if_abap_behv=>fc-o-disabled
+                                   ELSE if_abap_behv=>fc-o-enabled  )
+             is_rejected = COND #( WHEN travel-OverallStatus = travel_status-canceled
+                                   THEN if_abap_behv=>fc-o-disabled
+                                   ELSE if_abap_behv=>fc-o-enabled  )
+
+        IN
+        ( %tky                  = travel-%tky
+        %action-acceptTravel   = is_accepted
+        %action-rejectTravel   = is_rejected    ) ).
+
+  ENDMETHOD.
+
+  METHOD acceptTravel.
+
+* -> Modifying the travel status
+    MODIFY ENTITIES OF zi_travel01 IN LOCAL MODE
+     ENTITY travel
+        UPDATE
+         FIELDS ( OverallStatus )
+         WITH VALUE #( FOR key IN keys
+                       ( %tky           = key-%tky
+                         OverallStatus  = travel_status-accepted ) )
+     FAILED   failed
+     REPORTED reported.
+
+* -> Providing the results as defined in the behavior definition
+* -> We return $self (the travel instance)
+
+* ->  %tky stands for the transactional key and using
+* ->+ the transactional key reduces reworking of the implementation when we
+* ->+ enable draft handling.
+
+* -> "%param" is the line structure
+
+    READ ENTITIES OF zi_travel01 IN LOCAL MODE
+     ENTITY travel
+      ALL FIELDS WITH CORRESPONDING #( keys )
+      RESULT DATA(travels).
+
+    result = VALUE #( FOR travel IN travels
+                      ( %tky   = travel-%tky
+                        %param = travel ) ).
+
+  ENDMETHOD.
+
+*-> This is an example of an internal action
+  METHOD recalcTotalPrice.
+
+    TYPES: BEGIN OF ty_amount_per_currencycode,
+             amount TYPE /dmo/total_price,
+             ccode  TYPE /dmo/currency_code,
+           END OF ty_amount_per_currencycode.
+
+    DATA: lt_amtcur TYPE STANDARD TABLE OF ty_amount_per_currencycode.
+
+    READ ENTITIES OF zi_travel01 IN LOCAL MODE
+     ENTITY travel
+     FIELDS ( BookingFee CurrencyCode )
+     WITH CORRESPONDING #(  keys )
+     RESULT DATA(travels).
+
+    DELETE travels WHERE CurrencyCode IS INITIAL.
+
+*-> Read Bookings via Association
+    LOOP AT travels ASSIGNING FIELD-SYMBOL(<lfs_travel>).
+
+      lt_amtcur = VALUE #( ( amount = <lfs_travel>-BookingFee
+                             ccode =  <lfs_travel>-CurrencyCode ) ).
+
+      READ ENTITIES OF zi_travel01 IN LOCAL MODE
+       ENTITY travel BY \_booking
+       FIELDS ( FlightPrice CurrencyCode )
+       WITH VALUE #( ( %tky = <lfs_travel>-%tky ) )
+       RESULT DATA(bookings).
+
+      LOOP AT bookings ASSIGNING FIELD-SYMBOL(<lfs_booking>) .
+        COLLECT VALUE ty_amount_per_currencycode( amount = <lfs_booking>-FlightPrice
+                                                  ccode =  <lfs_booking>-CurrencyCode ) INTO lt_amtcur.
+      ENDLOOP.
+
+      CLEAR <lfs_travel>-TotalPrice.
+
+      LOOP AT lt_amtcur ASSIGNING FIELD-SYMBOL(<lfs_amtcurr>).
+        IF <lfs_amtcurr>-ccode = <lfs_travel>-CurrencyCode . "same currency code no currency conversion needed
+          <lfs_travel>-TotalPrice += <lfs_amtcurr>-amount.
+        ELSE.
+          "different currency code and currency conversion is needed & achieved via AMDP
+**********************NO KNOWLEDGE OF AMDP*******************************
+          /dmo/cl_flight_amdp=>convert_currency(
+             EXPORTING
+               iv_amount                   =  <lfs_amtcurr>-amount
+               iv_currency_code_source     =  <lfs_amtcurr>-ccode
+               iv_currency_code_target     =  <lfs_travel>-CurrencyCode
+               iv_exchange_rate_date       =  cl_abap_context_info=>get_system_date( )
+             IMPORTING
+               ev_amount                   = DATA(total_booking_price_per_curr)
+            ).
+          <lfs_travel>-TotalPrice += total_booking_price_per_curr.
+**********************NO KNOWLEDGE OF AMDP*******************************
+        ENDIF.
+      ENDLOOP.
+    ENDLOOP.
+  ENDMETHOD.
+
+  METHOD rejectTravel.
+
+* -> Modifying the travel status
+    MODIFY ENTITIES OF zi_travel01 IN LOCAL MODE
+     ENTITY travel
+        UPDATE
+         FIELDS ( OverallStatus )
+         WITH VALUE #( FOR key IN keys
+                       ( %tky           = key-%tky
+                         OverallStatus  = travel_status-canceled ) )
+     FAILED   failed
+     REPORTED reported.
+
+* -> Providing the results as defined in the behavior definition
+* -> We return $self (the travel instance)
+
+* ->  %tky stands for the transactional key and using
+* ->+ the transactional key reduces reworking of the implementation when we
+* ->+ enable draft handling.
+
+* -> "%param" is the line structure
+
+    READ ENTITIES OF zi_travel01 IN LOCAL MODE
+     ENTITY travel
+      ALL FIELDS WITH CORRESPONDING #( keys )
+      RESULT DATA(travels).
+
+    result = VALUE #( FOR travel IN travels
+                      ( %tky   = travel-%tky
+                        %param = travel ) ).
+
+
+  ENDMETHOD.
+
+  METHOD calculateTotalPrice.
+*->  Determinations need to be idempotent i.e. executing the same operation multiple times
+*->+ will not change the result
+
+*-> This is executing an internal action
+    MODIFY ENTITIES OF zi_travel01 IN LOCAL MODE
+     ENTITY travel
+      EXECUTE recalcTotalPrice
+      FROM CORRESPONDING #( keys )
+     REPORTED DATA(execute_reported).
+
+    reported = CORRESPONDING #( DEEP execute_reported ).
+
+  ENDMETHOD.
+
+  METHOD setInitialStatus.
+*->  Determinations need to be idempotent i.e. executing the same operation multiple times
+*->+ will not change the result
+
+*-> Read the Travel Entity from the Business Object
+    READ ENTITIES OF zi_travel01 IN LOCAL MODE
+     ENTITY travel
+      ALL FIELDS WITH CORRESPONDING #( keys )
+      RESULT DATA(travels).
+
+    DELETE travels WHERE OverallStatus IS NOT INITIAL.
+    CHECK travels IS NOT INITIAL.
+
+    MODIFY ENTITIES OF zi_travel01 IN LOCAL MODE
+     ENTITY travel
+      UPDATE
+      FIELDS ( OverallStatus )
+      WITH VALUE #( FOR travel IN travels
+                    ( %tky           = travel-%tky
+                      OverallStatus  = travel_status-open ) )
+      REPORTED DATA(update_reported).
+
+    reported = CORRESPONDING #( DEEP update_reported ).
+
+  ENDMETHOD.
+
+  METHOD calculateTravelId.
+*->  Determinations need to be idempotent i.e. executing the same operation multiple times
+*->+ will not change the result
+
+    READ ENTITIES OF zi_travel01 IN LOCAL MODE
+     ENTITY travel
+      FIELDS ( TravelId ) WITH CORRESPONDING #( keys )
+     RESULT DATA(travels).
+
+    DELETE travels WHERE travelid IS NOT INITIAL.
+
+    CHECK travels IS NOT INITIAL.
+
+*-> Get the maximum travelid
+    SELECT SINGLE
+    FROM zdemo_atrav_01
+    FIELDS MAX( travel_id ) AS travelid
+    INTO @DATA(maximum_travelid).
+
+*-> set the TravelID
+    MODIFY ENTITIES OF zi_travel01 IN LOCAL MODE
+     ENTITY travel
+      UPDATE
+      FROM VALUE #( FOR travel IN travels INDEX INTO i (
+       %tky              =  travel-%tky
+       travelid          = maximum_travelid + i
+       %control-TravelId = if_abap_behv=>mk-on  )  "what is this???
+                  )
+        REPORTED DATA(update_reported).
+
+    reported = CORRESPONDING #( DEEP update_reported ).
+
+  ENDMETHOD.
+
+  METHOD validateAgency.
+
+    READ ENTITIES OF zi_travel01 IN LOCAL MODE
+     ENTITY travel
+     FIELDS ( AgencyId ) WITH CORRESPONDING #( keys )
+     RESULT DATA(travels).
+
+    DATA agencies TYPE SORTED TABLE OF /dmo/agency WITH UNIQUE KEY agency_id.
+
+* Discarding Duplicates and reverse mapping
+    agencies = CORRESPONDING #( travels DISCARDING DUPLICATES MAPPING agency_id = AgencyId EXCEPT * ).
+
+    IF agencies IS NOT INITIAL.
+      SELECT FROM /dmo/agency FIELDS agency_id
+      FOR ALL ENTRIES IN @agencies
+      WHERE agency_id = @agencies-agency_id
+      INTO TABLE @DATA(agencies_db).
+    ENDIF.
+
+    LOOP AT travels ASSIGNING FIELD-SYMBOL(<lfs_travel>).
+
+* clear state messages that might exist. Not sure why we do this!!!
+      APPEND VALUE #( %tky           = <lfs_travel>-%tky
+                      %state_area    = 'VALIDATE_AGENCY' ) TO reported-travel.
+
+      IF <lfs_travel>-AgencyId IS INITIAL OR NOT line_exists( agencies_db[ agency_id = <lfs_travel>-AgencyId ] ).
+        APPEND VALUE #( %tky = <lfs_travel>-%tky  ) TO failed-travel.
+
+        APPEND VALUE #( %tky                = <lfs_travel>-%tky
+                        %state_area         = 'VALIDATE_AGENCY'
+                        %msg                = NEW zcl_msg_writer1(
+                                                severity   = if_abap_behv_message=>severity-error
+                                                textid     = zcl_msg_writer1=>agency_unknown
+                                                agencyid   = <lfs_travel>-AgencyId )
+                        %element-agencyid   = if_abap_behv=>mk-on )
+        TO reported-travel.
+      ENDIF.
+
+    ENDLOOP.
+
+  ENDMETHOD.
+
+  METHOD validateCustomer.
+
+*-> First read the entity travel from the Business Object
+    READ ENTITIES OF zi_travel01 IN LOCAL MODE
+     ENTITY travel
+     FIELDS ( CustomerId ) WITH CORRESPONDING #( keys )
+     RESULT DATA(travels).
+
+*-> Internal Table For Customers
+    DATA customers TYPE SORTED TABLE OF /dmo/customer WITH UNIQUE KEY customer_id.
+
+*-> Moving data from travels to customers
+    customers = CORRESPONDING #( travels DISCARDING DUPLICATES MAPPING customer_id = CustomerId EXCEPT * ).
+    DELETE customers WHERE customer_id IS INITIAL.
+
+*-> Select the Customers from the backend DB
+    IF customers IS NOT INITIAL.
+      SELECT FROM /dmo/customer FIELDS customer_id
+       FOR ALL ENTRIES IN @customers
+       WHERE customer_id = @customers-customer_id
+       INTO TABLE @DATA(customers_db).
+    ENDIF.
+
+*-> Raise Message for non-existing customers
+    LOOP AT travels ASSIGNING FIELD-SYMBOL(<lfs_travel>).
+
+      APPEND VALUE #( %tky        = <lfs_travel>-%tky
+                      %state_area = 'VALIDATE_CUSTOMER' )
+      TO reported-travel.
+
+      IF <lfs_travel>-CustomerId IS INITIAL OR NOT line_exists( customers_db[ customer_id = <lfs_travel>-CustomerId ] ).
+        APPEND VALUE #( %tky = <lfs_travel>-%tky ) TO failed-travel.
+
+        APPEND VALUE #( %tky          = <lfs_travel>-%tky
+                        %state_area   = 'VALIDATE_CUSTOMER'
+                        %msg          = NEW zcl_msg_writer1(
+                                              severity   = if_abap_behv_message=>severity-error
+                                              textid     = zcl_msg_writer1=>customer_unknown
+                                              customerid = <lfs_travel>-CustomerId )
+                       %element-customerId   = if_abap_behv=>mk-on )
+        TO reported-travel.
+
+      ENDIF.
+    ENDLOOP.
+  ENDMETHOD.
+
+  METHOD validateDates.
+    READ ENTITIES OF zi_travel01 IN LOCAL MODE
+     ENTITY travel
+      FIELDS ( TravelId BeginDate EndDate  ) WITH CORRESPONDING #( keys )
+     RESULT DATA(travels).
+
+    LOOP AT travels ASSIGNING FIELD-SYMBOL(<lfs_travel>).
+
+      APPEND VALUE #( %tky         = <lfs_travel>-%tky
+                      %state_area  = 'VALIDATE_DATES')
+      TO reported-travel.
+
+      IF <lfs_travel>-BeginDate > <lfs_travel>-EndDate.
+        APPEND VALUE #( %tky = <lfs_travel>-%tky ) TO failed-travel.
+        APPEND VALUE #( %tky                = <lfs_travel>-%tky
+                        %state_area         = 'VALIDATE_DATES'
+                        %msg                = NEW zcl_msg_writer1(
+                                                    severity            = if_abap_behv_message=>severity-error
+                                                    textid              = zcl_msg_writer1=>date_interval
+                                                    begindate           = <lfs_travel>-BeginDate
+                                                    enddate             = <lfs_travel>-EndDate
+                                                    travelid            = <lfs_travel>-TravelId )
+                       %element-begindate   = if_abap_behv=>mk-on
+                       %element-enddate     = if_abap_behv=>mk-on  "Intentionally this off, check the impact?
+                     ) TO reported-travel.
+
+      ELSEIF <lfs_travel>-BeginDate < cl_abap_context_info=>get_system_date( ).
+        APPEND VALUE #( %tky = <lfs_travel>-%tky ) TO failed-travel.
+        APPEND VALUE #( %tky                = <lfs_travel>-%tky
+                        %state_area         = 'VALIDATE_DATES'
+                        %msg                = NEW zcl_msg_writer1(
+                                                    severity            = if_abap_behv_message=>severity-error
+                                                    textid              = zcl_msg_writer1=>begin_date_before_system_date
+                                                    begindate           = <lfs_travel>-BeginDate )
+                       %element-begindate   = if_abap_behv=>mk-off ) TO reported-travel.
+      ENDIF.
+    ENDLOOP.
+  ENDMETHOD.
+
+  METHOD get_instance_authorizations.
+
+*-> Need to implement this.
+
+
+  ENDMETHOD.
+
+  METHOD is_create_granted.
+
+    AUTHORITY-CHECK OBJECT 'ZAO_STATUS'
+    ID 'ZZOSTATUS' DUMMY
+    ID 'ACTVT' FIELD '01'.
+
+    create_granted = COND #( WHEN sy-subrc = 0 THEN abap_true ELSE abap_false ).
+
+*-> Small hack as we can't influence roles and authorizations in the trial environment.
+    create_granted = abap_true.
+  ENDMETHOD.
+
+  METHOD is_delete_granted.
+    IF has_before_image = abap_true.
+      AUTHORITY-CHECK OBJECT 'ZAO_STATUS'
+      ID 'ZZOSTATUS' FIELD overall_status
+      ID 'ACTVT'     FIELD '06'.
+    ELSE.
+      AUTHORITY-CHECK OBJECT 'ZAO_STATUS'
+      ID 'ZZOSTATUS' DUMMY
+      ID  'ACTVT'  FIELD '06'.
+    ENDIF.
+
+    delete_granted = COND #( WHEN sy-subrc IS INITIAL THEN abap_true ELSE abap_false ).
+*-> Small hack as we can't influence roles and authorizations in the trial environment.
+    delete_granted  = abap_true.
+
+  ENDMETHOD.
+
+  METHOD is_update_granted.
+    IF has_before_image = abap_true.
+      AUTHORITY-CHECK OBJECT 'ZAO_STATUS'
+      ID 'ZZOSTATUS' FIELD overall_status
+      ID 'ACTVT'     FIELD '02'.
+    ELSE.
+      AUTHORITY-CHECK OBJECT 'ZAO_STATUS' "Authorization Object
+      ID 'ZZOSTATUS' DUMMY
+      ID 'ACTVT'  FIELD '02'.
+    ENDIF.
+
+    update_granted = COND #( WHEN sy-subrc IS INITIAL THEN abap_true ELSE abap_false ).
+*-> Small hack as we can't influence roles and authorizations in the trial environment.
+    update_granted = abap_false.
+
+  ENDMETHOD.
+
+ENDCLASS.
